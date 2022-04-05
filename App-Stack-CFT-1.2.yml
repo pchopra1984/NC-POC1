@@ -1,0 +1,348 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: Drone Application stack. 
+
+###############################################################################
+# Version 1.0 26/03/2022 First draft
+# Version 1.1 26/03/2022 Bug fixes related to route53
+###############################################################################
+
+###############################################################################
+# Parameters section
+###############################################################################
+
+Parameters: 
+  #--------------------------
+  # Environment
+  #--------------------------
+  Env: 
+      Description: The environment type
+      Type: String
+      Default: Tst
+      AllowedValues: 
+        - Prd
+        - Pre
+        - Tst
+      ConstraintDescription: must be a Pre, Prd or Tst
+      
+  BEReleaseVersion:
+      Description: Enter a release version 
+      Type: String
+      Default: 'ghost-1.0'
+      ConstraintDescription: Format - ghost-1.0
+
+  BEConfigVersion:
+      Description: Enter a Config version 
+      Type: String
+      Default: 'ghostconfig-1.0'
+      ConstraintDescription: Format - ghostconfig-1.0
+  
+  AmiIdBE:
+      Description: Enter the BE AMI-ID 
+      Type: String
+      Default: 'ami-07d25448d7655104d'
+      ConstraintDescription: Format - ami-07d25448d7655104d
+      
+###############################################################################
+# Mappings section
+###############################################################################
+
+Mappings:
+  EnvironmentMap:
+
+    Tst:
+      "CidrAppVPC"                  : "192.168.0.0/20"
+      "CidrVpcTransit"              : "10.10.0.0/20"
+      "CidrWebPublicSub1"           : "192.168.1.0/24"
+      "CidrWebPublicSub2"           : "192.168.2.0/24"
+      "CidrAppPrivateSub1"          : "192.168.3.0/24"
+      "CidrAppPrivateSub2"          : "192.168.4.0/24"
+      "CidrDBPrivateSub1"           : "192.168.5.0/24"
+      "CidrDBPrivateSub2"           : "192.168.6.0/24"
+      "AppEC2MinCapacity"           : 2
+      "AppEC2MaxCapacity"           : 4
+      "Certificate"                 : "arn:aws:iam::332389095262:server-certificate/pradeepchopra.in"
+      "Dns1"                        : "pradeepchopra.in."
+      "DnsHZ"                       : "pradeepchopra.in."
+      "InstanceType1"               : "t3.micro"
+      "S3Endpoint"                  : "com.amazonaws.eu-north-1.s3"
+      "CloudwatchEndpoint"          : "com.amazonaws.eu-north-1.logs"
+      "S3BinLocation"               : "s3://myghost-poc/test/binaries"
+      "S3ConfigLocation"            : "s3://myghost-poc/test/config"
+      "S3CertsLocation"             : "s3://myghost-poc/test/ssl"
+      "S3ELBAccessLogsLocation"     : "drone-elb-logs"
+      
+#######################################################################################
+###Resources Section
+#######################################################################################
+
+Resources: 
+########################################################################################
+####LB Section
+########################################################################################
+  AppLB:
+    Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
+    Properties:
+      Scheme: internet-facing
+      Name:
+        !Sub 'Drone-${Env}-ALB'
+      Subnets:
+        - Fn::ImportValue: 'Web-Public-Sub1'
+        - Fn::ImportValue: 'Web-Public-Sub2'
+      SecurityGroups:
+        - Fn::ImportValue: 'FEALB-Security-Group'
+      IpAddressType: ipv4
+      Tags:
+        - Key: Name
+          Value: 
+            !Sub 'Drone-${Env}-AppLB'
+        - Key: Project
+          Value: Drone-Poc
+        - Key: Env
+          Value: 
+            !Ref Env
+
+  AppLBTG:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      Name: 
+        !Sub 'Drone-${Env}-App-TG'
+      Port: 443
+      Protocol: HTTPS
+      HealthCheckPath: /
+      TargetGroupAttributes:
+        - Key: stickiness.enabled
+          Value: 'false'
+        - Key: deregistration_delay.timeout_seconds
+          Value: '300'
+      VpcId:
+        Fn::ImportValue: 'App-VPC-ID'
+      Tags:
+        - Key: Project
+          Value: Drone-Poc
+        - Key: Env
+          Value: 
+            !Ref Env
+            
+  AppLBListener:
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref AppLBTG
+      LoadBalancerArn: !Ref AppLB
+      Port: '443'
+      Protocol: HTTPS
+      SslPolicy: ELBSecurityPolicy-TLS-1-2-Ext-2018-06
+      Certificates:
+        - CertificateArn: !FindInMap [EnvironmentMap, !Ref Env, "Certificate"]
+
+  AppLBListenerHTTP:
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
+    Properties:
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Host: '#{host}'
+            Query: '#{query}'
+            Path: /#{path}
+            Port: '443'
+            StatusCode: HTTP_301
+      LoadBalancerArn: !Ref AppLB
+      Port: '80'
+      Protocol: HTTP
+
+ 
+########################################################################################
+####Route53 Section
+########################################################################################
+  myDNSRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName:
+          Fn::GetAtt: ["AppLB","DNSName"]
+        EvaluateTargetHealth: true
+        HostedZoneId:
+          Fn::GetAtt: ["AppLB","CanonicalHostedZoneID"]
+      HostedZoneName: 
+        !FindInMap [EnvironmentMap, !Ref Env, "DnsHZ"]
+      Name: 
+        !FindInMap [EnvironmentMap, !Ref Env, "Dns1"]
+      Type: A
+      
+########################################################################################
+####S3 Endpoint Section
+########################################################################################
+ 
+  EndpointS3:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      RouteTableIds:
+        - Fn::ImportValue: 'App-Private-Route-Table'
+      ServiceName:
+        !FindInMap [EnvironmentMap, !Ref Env, "S3Endpoint"]
+      VpcId:
+        Fn::ImportValue: 'App-VPC-ID'
+
+########################################################################################
+####Auto-Scaling Section
+########################################################################################
+  AppLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId:
+        !Ref AmiIdBE
+      SecurityGroups:
+        - Fn::ImportValue: 'App-Security-Group'
+      IamInstanceProfile: "DroneInstanceProfile"
+      InstanceType: 
+        !FindInMap [EnvironmentMap, !Ref Env, "InstanceType1"]
+      BlockDeviceMappings: 
+        - DeviceName: "/dev/sda1"
+          Ebs: 
+            VolumeSize: "8"
+            VolumeType: "gp2"
+            DeleteOnTermination: "true"
+      UserData:
+        Fn::Base64: 
+          Fn::Sub:
+          - |
+            #!/bin/bash -xe 
+            aws s3 cp ${S3BinLocation}/deploy.sh ~/
+            chmod 754 ~/deploy.sh;
+            dos2unix ~/deploy.sh ~/deploy.sh;
+            ~/deploy.sh >> /var/log/deployment.log;
+            cd /var/www/drone/; su ubuntu -c "ghost restart";
+                        
+          - {
+              S3BinLocation: !FindInMap [EnvironmentMap, !Ref Env, "S3BinLocation"],
+              S3ConfigLocation: !FindInMap [EnvironmentMap, !Ref Env, "S3ConfigLocation"],
+              S3CertsLocation: !FindInMap [EnvironmentMap, !Ref Env, "S3CertsLocation"]
+            }
+  AppAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MinInstancesInService: 1
+        MaxBatchSize: 1
+        PauseTime: "PT100S"
+    Properties:
+      VPCZoneIdentifier:
+        - Fn::ImportValue: 'App-Private-Sub1'
+        - Fn::ImportValue: 'App-Private-Sub2'
+      LaunchConfigurationName:
+        Ref: AppLaunchConfig
+      AutoScalingGroupName:
+        !Sub 'Drone-${Env}-App-ASG'
+      MinSize:
+        !FindInMap [EnvironmentMap, !Ref Env, "AppEC2MinCapacity"]   
+      MaxSize:
+        !FindInMap [EnvironmentMap, !Ref Env, "AppEC2MaxCapacity"]
+      TargetGroupARNs:
+        - !Ref AppLBTG
+      Tags:
+        - Key: Name
+          Value:
+            !Sub 'Drone-${Env}-App-Server'
+          PropagateAtLaunch: true
+        - Key: Project
+          Value: Drone-Poc
+          PropagateAtLaunch: true
+        - Key: Env
+          Value: 
+            !Ref Env
+          PropagateAtLaunch: true
+
+
+  ScaleUpPolicyApp:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName:
+        Ref: AppAutoScalingGroup
+      Cooldown: 30
+      ScalingAdjustment: "1"
+
+  ScaleDownPolicyApp:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName:
+        Ref: AppAutoScalingGroup
+      Cooldown: 30
+      ScalingAdjustment: "-1"
+
+  CPUAlarmHighApp:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmActions:
+        - Ref: ScaleUpPolicyApp
+      EvaluationPeriods: "2"
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value:
+            Ref: AppAutoScalingGroup
+      MetricName: CPUUtilization
+      Namespace: "AWS/EC2"
+      Period: "60"
+      Statistic: Average
+      Threshold: "80"
+      Unit: Percent
+
+  CPUAlarmLowApp:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmActions:
+        - Ref: ScaleDownPolicyApp
+      EvaluationPeriods: "2"
+      ComparisonOperator: LessThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value:
+            Ref: AppAutoScalingGroup
+      MetricName: CPUUtilization
+      Namespace: "AWS/EC2"
+      Period: "60"
+      Statistic: Average
+      Threshold: "40"
+      Unit: Percent        
+      
+#######################################################################################
+### Cloudwatch Section
+#######################################################################################
+      
+    
+  ApacheHttpFailureMetricFilter: 
+    Type: AWS::Logs::MetricFilter
+    Properties: 
+      LogGroupName: 
+        Fn::ImportValue: 'Drone-ApacheAccessLogs'
+      FilterPattern: '[x1,x2,x3,x4,x5,x6!=200,...]'
+      MetricTransformations: 
+        - MetricNamespace: 
+            !Sub 'Drone-${Env}'
+          MetricName: ApacheHttpFailure
+          MetricValue: 1
+          
+  ApacheHttpFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName:
+        !Sub 'App-${Env}-ApacheHttpFailure'
+      AlarmDescription: 'Number of http failures in apache is greater than 100 over 5 minutes.'
+      MetricName: ApacheHttpFailureAlarm
+      Namespace:
+        !Sub 'Drone-${Env}'
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 100
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - Fn::ImportValue: 'Drone-AlarmsTopic'
+      ComparisonOperator: GreaterThanThreshold    
+
+# ###############################################################################

@@ -1,0 +1,204 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: Database stack. 
+
+###############################################################################
+# Version 1.0 28/03/2022 First draft
+###############################################################################
+Metadata:
+  AWS::CloudFormation::Interface: 
+    ParameterGroups:
+      - 
+        Label: 
+          default: Enter desired configuration
+        Parameters:
+          - DatabaseInstanceIdentifier
+          - DatabaseName
+          - DatabaseUser
+          - DatabasePassword
+          - DatabaseBackupRetentionPeriod
+          - DatabaseAllocatedStorage
+          - DatabaseInstanceClass
+          - MultiAZDatabase
+###############################################################################
+# Parameters section
+###############################################################################
+
+Parameters: 
+  #--------------------------
+  # Environment
+  #--------------------------
+  Env: 
+    Description: The environment type
+    Type: String
+    Default: Tst
+    AllowedValues: 
+      - Prd
+      - Pre
+      - Tst
+    ConstraintDescription: must be a Pre, Prd or Tst
+
+  DatabaseInstanceIdentifier:
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: Start with a letter followed by alphanumeric
+    Default: mydb
+    Description: DBInstanceIdentifier
+    MaxLength: 60
+    MinLength: 1
+    Type: String
+
+  DatabaseName:
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: Start with a letter followed by alphanumeric
+    Default: ghostdb
+    Description: Enter Database Name
+    MaxLength: 64
+    MinLength: 1
+    Type: String
+
+  DatabaseUser:
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters
+    Default: admin
+    Description: Username for MySQL
+    MaxLength: 16
+    MinLength: 1
+    NoEcho: true
+    Type: String
+
+  DatabasePassword:
+    AllowedPattern: '[a-zA-Z0-9@!]*'
+    ConstraintDescription: Must contain only alphanumeric characters
+    Default: samsung123
+    Description: Password for MySQL
+    MaxLength: 41
+    MinLength: 8
+    NoEcho: true
+    Type: String
+
+  DatabaseBackupRetentionPeriod:
+    ConstraintDescription: Backup retention days (0-35 days)
+    Default: 0
+    Description: Backup retention days (0-35 days)
+    MaxValue: 35
+    MinValue: 0
+    Type: Number
+
+  DatabaseAllocatedStorage:
+    ConstraintDescription: Value between 5 and 1024Gb
+    Default: 20
+    Description: Allocated size of database
+    MaxValue: 65536
+    MinValue: 5
+    Type: Number
+
+  DatabaseInstanceClass:
+    AllowedValues:
+      - db.t3.micro
+      - db.t3.medium
+      - db.t3.small
+    ConstraintDescription: Select a valid database instance type
+    Default: db.t3.micro
+    Description: Instance type to be used for Database
+    Type: String
+
+  MultiAZDatabase:
+    AllowedValues:
+      - true
+      - false
+    ConstraintDescription: Must be either true or false
+    Default: false
+    Description: Do you want MultiAZ support?
+    Type: String
+
+###############################################################################
+# Mappings section
+###############################################################################
+
+Mappings:
+  EnvironmentMap:
+    Tst:
+      "CidrAppVPC"                  : "192.168.0.0/20"
+      "CidrDBPrivateSub1"           : "192.168.5.0/24"
+      "CidrDBPrivateSub2"           : "192.168.6.0/24"
+ 
+Resources:   
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS database
+      SubnetIds:
+        -  Fn::ImportValue: 'DB-Private-Subnet1'
+        -  Fn::ImportValue: 'DB-Private-Subnet2'
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Drone-${Env}-DB-SubnetGroup'
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+
+
+  DatabaseSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: MySQL Allowed Port 3306
+      VpcId: 
+        Fn::ImportValue: 'App-VPC-ID'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '3306'
+          ToPort: '3306'
+          SourceSecurityGroupId: 
+            Fn::ImportValue: 'App-Security-Group'
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Drone-${Env}-DB-SecurityGroup'
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+  
+  DatabaseInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: !Ref DatabaseAllocatedStorage
+      AvailabilityZone: !Select [ 0, !GetAZs  '' ]
+      BackupRetentionPeriod: !Ref DatabaseBackupRetentionPeriod
+      DBInstanceClass: !Ref DatabaseInstanceClass
+      DBInstanceIdentifier: !Ref DatabaseInstanceIdentifier
+      DBName: !Ref DatabaseName
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      VPCSecurityGroups: 
+        -
+          Ref: DatabaseSecurityGroup
+      Engine: MySQL
+      EngineVersion: 8.0
+      MasterUsername: !Ref DatabaseUser
+      MasterUserPassword: !Ref DatabasePassword
+      MultiAZ: !Ref MultiAZDatabase
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Drone-${Env}-DB-Instance'
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+
+###############################################################################
+# Outputs section
+###############################################################################
+Outputs:
+  DBInstanceDetails:
+    Description: RDS MySQL instance endpoints
+    Value: 
+      Fn::GetAtt: ["DatabaseInstance","Endpoint.Address"]
+    Export:
+      Name: 'Drone-RDS-EndPoint'
+#########################################################3

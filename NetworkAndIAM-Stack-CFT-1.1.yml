@@ -1,0 +1,767 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: static resources (iam roles, loggroups, etc).
+
+#################################################################################
+# Version:1.0 27/03/2022
+#################################################################################
+
+#################################################################################
+# Parameters
+#################################################################################
+Parameters:
+  Env: 
+    Description: The environment type
+    Type: String
+    Default: Tst
+    AllowedValues: 
+      - Prd
+      - Pre
+      - Tst
+    ConstraintDescription: must be a Pre, Prd or Tst
+      
+  Email:
+    Description: "Email address for all the alarms."
+    Type: String
+    Default: "er.prady2022@gmail.com"
+
+###############################################################################
+# Mappings section
+###############################################################################
+
+Mappings:
+  EnvironmentMap:
+    Tst:
+      "CidrAppVPC"                  : "192.168.0.0/20"
+      "CidrVpcTransit"              : "10.10.0.0/20"
+      "CidrWebPublicSub1"           : "192.168.1.0/24"
+      "CidrWebPublicSub2"           : "192.168.2.0/24"
+      "CidrAppPrivateSub1"          : "192.168.3.0/24"
+      "CidrAppPrivateSub2"          : "192.168.4.0/24"
+      "CidrDBPrivateSub1"           : "192.168.5.0/24"
+      "CidrDBPrivateSub2"           : "192.168.6.0/24"
+
+#################################################################################
+## Resources
+#################################################################################
+Resources:
+  AppVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 
+        !FindInMap [EnvironmentMap, !Ref Env, "CidrAppVPC"]
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      InstanceTenancy: default
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Drone-${Env}-AppVpc'
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+
+#######################################################################################
+###Subnet Section
+#######################################################################################
+  AppPrivateSub1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: AppVPC
+      CidrBlock: 
+        !FindInMap [EnvironmentMap, !Ref Env, "CidrAppPrivateSub1"]
+      AvailabilityZone: 
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: ""
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Drone-${Env}-APP-Private-Sub1'
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+
+  AppPrivateSub2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: AppVPC
+      CidrBlock: 
+        !FindInMap [EnvironmentMap, !Ref Env, "CidrAppPrivateSub2"]
+      AvailabilityZone: 
+        Fn::Select:
+          - 1
+          - Fn::GetAZs: ""
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Drone-${Env}-APP-Private-Sub2'
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+
+  DBPrivateSub1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: AppVPC
+      CidrBlock: 
+        !FindInMap [EnvironmentMap, !Ref Env, "CidrDBPrivateSub1"]
+      AvailabilityZone: 
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: ""
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Drone-${Env}-DB-Private-Sub1'
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+
+  DBPrivateSub2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: AppVPC
+      CidrBlock: 
+        !FindInMap [EnvironmentMap, !Ref Env, "CidrDBPrivateSub2"]
+      AvailabilityZone: 
+        Fn::Select:
+          - 1
+          - Fn::GetAZs: ""
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Drone-${Env}-DB-Private-Sub2'
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+     
+  WebPublicSub1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: AppVPC
+      CidrBlock: 
+        !FindInMap [EnvironmentMap, !Ref Env, "CidrWebPublicSub1"]
+      AvailabilityZone: 
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: ""
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Drone-${Env}-WEB-Public-Sub1'
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+ 
+  WebPublicSub2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: AppVPC
+      CidrBlock:
+        !FindInMap [EnvironmentMap, !Ref Env, "CidrWebPublicSub2"]
+      AvailabilityZone: 
+        Fn::Select:
+          - 1
+          - Fn::GetAZs: ""
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Drone-${Env}-WEB-Public-Sub2'
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+
+#######################################################################################
+###Route Table Section
+#######################################################################################
+  WebPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: AppVPC
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Drone-${Env}-WebPublicRouteTable'
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+
+  AppPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: AppVPC
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Drone-${Env}-AppPrivateRouteTable'        
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+
+  DBPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: AppVPC
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Drone-${Env}-DBPrivateRouteTable'        
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+
+########################################################################################
+####Route Section
+########################################################################################
+  WebInternetRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId:
+        Ref: WebPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId:
+        Ref: myInternetGateway
+        
+  TransitToAppRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 
+        !FindInMap [EnvironmentMap, !Ref Env, "CidrAppVPC"]
+      RouteTableId:
+        Fn::ImportValue: Transit-Tst-Public-RouteTable
+      VpcPeeringConnectionId:
+        Ref: TransitVpcPeering
+
+  AppToTransitRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock:
+        !FindInMap [EnvironmentMap, !Ref Env, "CidrVpcTransit"]
+      RouteTableId:
+        Ref: AppPrivateRouteTable
+      VpcPeeringConnectionId:
+        Ref: TransitVpcPeering
+
+########################################################################################
+####Subnet Association Section
+########################################################################################
+  AppPrivateSubnetAssoc1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: AppPrivateRouteTable
+      SubnetId:
+        Ref: AppPrivateSub1
+        
+  AppPrivateSubnetAssoc2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: AppPrivateRouteTable
+      SubnetId:
+        Ref: AppPrivateSub2
+        
+  DBPrivateSubnetAssoc1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: DBPrivateRouteTable
+      SubnetId:
+        Ref: DBPrivateSub1
+        
+  DBPrivateSubnetAssoc2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: DBPrivateRouteTable
+      SubnetId:
+        Ref: DBPrivateSub2
+   
+  WebPublicSubnetAssoc1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: WebPublicRouteTable
+      SubnetId:
+        Ref: WebPublicSub1
+  WebPublicSubnetAssoc2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: WebPublicRouteTable
+      SubnetId:
+        Ref: WebPublicSub2
+        
+########################################################################################
+####Internet Gateway Section
+########################################################################################
+  myInternetGateway:
+    Type: "AWS::EC2::InternetGateway"
+    Properties:
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Drone-${Env}-IGW'        
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+
+  AppIgwAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        Ref: AppVPC
+      InternetGatewayId:
+        Ref: myInternetGateway
+
+
+########################################################################################
+####NAT Gateway Section
+########################################################################################
+  ElasticIP1:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: AppVPC
+
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt ElasticIP1.AllocationId
+      SubnetId: !Ref WebPublicSub1
+ 
+  RouteNatGateway1:
+    Type: AWS::EC2::Route
+    DependsOn: [ NatGateway1 ]
+    Properties:
+      DestinationCidrBlock: '0.0.0.0/0'
+      NatGatewayId: !Ref NatGateway1
+      RouteTableId: !Ref AppPrivateRouteTable 
+ 
+      
+########################################################################################
+####Security Groups Section
+########################################################################################
+  FEALBSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Front-end LB Allowed Ports
+      VpcId: 
+        Ref: AppVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '443'
+          ToPort: '443'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: 0.0.0.0/0
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Drone-${Env}-FEALB-SecurityGroup'
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+
+         
+  AppSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: App Allowed Ports
+      VpcId: 
+        Ref: AppVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp:
+            !FindInMap [EnvironmentMap, !Ref Env, "CidrVpcTransit"]
+        - IpProtocol: tcp
+          FromPort: '443'
+          ToPort: '443'
+          SourceSecurityGroupId: 
+            Ref: FEALBSecurityGroup
+        - Description: "Healthcheck monitoring"
+          IpProtocol: TCP
+          FromPort: '443'
+          ToPort: '443'
+          CidrIp:
+            !FindInMap [EnvironmentMap, !Ref Env, "CidrAppVPC"]
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Drone-${Env}-App-SecurityGroup'
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+ 
+  DBSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: MySQL Allowed Port 3306
+      VpcId: 
+        Ref: AppVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '3306'
+          ToPort: '3306'
+          SourceSecurityGroupId: 
+            Ref: AppSecurityGroup
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Drone-${Env}-DB-SecurityGroup'
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+          
+  CloudwatchSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Https Access to cloudwatch"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp:
+            !FindInMap [EnvironmentMap, !Ref Env, "CidrAppVPC"]
+      VpcId:
+        Ref: AppVPC
+      Tags:
+        - Key: Name
+          Value: 
+            !Sub 'Drone-${Env}-Cloudwatch-SecurityGroup'
+        - Key: Project
+          Value: Drone-Poc
+        - Key: Env
+          Value: 
+            !Ref Env
+          
+  FEALBInboundRule:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      IpProtocol: tcp
+      FromPort: '443'
+      ToPort: '443'
+      SourceSecurityGroupId: !GetAtt 
+        - FEALBSecurityGroup
+        - GroupId
+      GroupId: !Ref FEALBSecurityGroup
+
+#######################################################################################
+### VPC Peering Section -> Done
+#######################################################################################
+
+  TransitVpcPeering:
+    Type: AWS::EC2::VPCPeeringConnection
+    Properties:
+      VpcId:
+        Ref: AppVPC
+      PeerVpcId:
+        Fn::ImportValue: Transit-Tst-Vpc
+      Tags:  
+      - Key: Name
+        Value: 
+          !Sub 'Drone-${Env}-Transit-Peering'    
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+          
+  TransitToAppRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 
+        !FindInMap [EnvironmentMap, !Ref Env, "CidrAppVPC"]
+      RouteTableId:
+        Fn::ImportValue: Transit-Tst-Public-RouteTable
+      VpcPeeringConnectionId:
+        Ref: TransitVpcPeering
+
+  AppToTransitRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock:
+        !FindInMap [EnvironmentMap, !Ref Env, "CidrVpcTransit"]
+      RouteTableId:
+        Ref: AppPrivateRouteTable
+      VpcPeeringConnectionId:
+        Ref: TransitVpcPeering
+
+#################################################################
+## Instance role
+#################################################################
+  DroneInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: DroneInstanceRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Policies:
+        - PolicyName: DroneS3BucketAccess
+          PolicyDocument: 
+            Version: "2012-10-17"
+            Statement:
+            - Effect: Allow
+              Action:
+              - s3:ListBucket
+              Resource:
+              - arn:aws:s3:::myghost-poc
+        - PolicyName: DroneS3Access
+          PolicyDocument: 
+            Version: "2012-10-17"
+            Statement:
+            - Effect: Allow
+              Action:
+              - s3:List*
+              - s3:Put*
+              - s3:DeleteObject
+              - s3:Get*
+              - s3:CreateBucket
+              Resource:
+              - arn:aws:s3:::myghost-poc/*
+        - PolicyName: DroneCloudwatchAccess
+          PolicyDocument:
+            Version: "2012-10-17"   
+            Statement:
+            - Effect: Allow
+              Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              - logs:DescribeLogStreams
+              Resource:
+              - arn:aws:logs:*:*:log-group:Drone-ApacheAccessLogs:*
+              - arn:aws:logs:*:*:log-group:Drone-ApacheErrorLogs:*
+              - arn:aws:logs:*:*:log-group:Drone-GhostLogs:*
+              - arn:aws:logs:*:*:log-group:Drone-GhostErrorLogs:*
+              - arn:aws:logs:*:*:log-group:Drone-SysLogs:*
+        - PolicyName: DroneKmsAccess
+          PolicyDocument:
+            Version: "2012-10-17"   
+            Statement:
+              Effect: Allow
+              Action: kms:Decrypt
+              Resource: "*"
+
+  DroneInstProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: 
+      - "DroneInstanceRole"
+      InstanceProfileName: "DroneInstanceProfile"
+    
+  #------------------------------------
+  # Drone alarming notification topic
+  #------------------------------------
+  DroneAlarmsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+      - Endpoint: 
+          Ref: Email
+        Protocol: email
+      TopicName: !Sub 'Drone-Alarms'
+
+  #------------------------------------
+  # Application loggroup definitions
+  #------------------------------------
+
+  ## Apache Log groups
+  DroneApacheAccessLogs:
+    Type: "AWS::Logs::LogGroup"
+    Properties: 
+      LogGroupName: 'Drone-ApacheAccessLogs'
+      RetentionInDays: 30
+
+  ## Apache Error Log groups
+  DroneApacheErrorLogs:
+    Type: "AWS::Logs::LogGroup"
+    Properties: 
+      LogGroupName: 'Drone-ApacheErrorLogs'
+      RetentionInDays: 30
+      
+  ## APP log group
+  DroneGhostLogs:
+    Type: "AWS::Logs::LogGroup"
+    Properties: 
+      LogGroupName: 'Drone-GhostLogs'
+      RetentionInDays: 30
+  
+  ## APP error log group
+  DroneGhostErrorLogs:
+    Type: "AWS::Logs::LogGroup"
+    Properties: 
+      LogGroupName: 'Drone-GhostErrorLogs'
+      RetentionInDays: 30
+  
+  ## APP syslogs group
+  DroneSysLogs:
+    Type: "AWS::Logs::LogGroup"
+    Properties: 
+      LogGroupName: 'Drone-SysLogs'
+      RetentionInDays: 30
+
+###############################################################################
+# Outputs section
+###############################################################################
+Outputs:
+  DroneAlarmsTopic:
+    Description: Alarming topic for all the Drone App alarms.
+    Value: 
+      !Ref DroneAlarmsTopic
+    Export:
+      Name: 'Drone-AlarmsTopic'
+
+  DroneApacheAccessLogs:
+    Description: Drone App apache access log group.
+    Value: 
+      !Ref DroneApacheAccessLogs
+    Export:
+      Name: 'Drone-ApacheAccessLogs'
+
+  DroneApacheErrorLogs:
+    Description: Apache Error log group.
+    Value: 
+      !Ref DroneApacheErrorLogs
+    Export:
+      Name: 'Drone-ApacheErrorLogs'
+
+  DroneGhostLogs:
+    Description: Ghost App log group.
+    Value: 
+      !Ref DroneGhostLogs
+    Export:
+      Name: 'Drone-GhostLogs'
+ 
+  DroneGhostErrorLogs:
+    Description: Ghost App Error log group.
+    Value: 
+      !Ref DroneGhostErrorLogs
+    Export:
+      Name: 'Drone-GhostErrorLogs'
+
+  DroneSysLogs:
+    Description: System Logs.
+    Value: 
+      !Ref DroneSysLogs
+    Export:
+      Name: 'Drone-SysLogs'
+
+  VpcId:
+    Description: AppVPC id 
+    Value: 
+      !Ref AppVPC
+    Export:
+      Name: 'App-VPC-ID'
+
+  DBPrivateSub1:
+    Description: DBPrivateSub1
+    Value: 
+      !Ref DBPrivateSub1
+    Export:
+      Name: 'DB-Private-Subnet1'
+  
+  DBPrivateSub2:
+    Description: DBPrivateSub2
+    Value: 
+      !Ref DBPrivateSub2
+    Export:
+      Name: 'DB-Private-Subnet2'
+
+  AppSecurityGp:
+    Description: AppSecurityGroup
+    Value: 
+      !Ref AppSecurityGroup
+    Export:
+      Name: 'App-Security-Group'
+
+  WebPublicSubnet1:
+    Description: WebPublicSubnet1
+    Value: 
+      !Ref WebPublicSub1
+    Export:
+      Name: 'Web-Public-Sub1'
+
+  WebPublicSubnet2:
+    Description: WebPublicSubnet2
+    Value: 
+      !Ref WebPublicSub2
+    Export:
+      Name: 'Web-Public-Sub2'
+
+  FEALBSecurityGp:
+    Description: FEALBSecurityGp
+    Value: 
+      !Ref FEALBSecurityGroup
+    Export:
+      Name: 'FEALB-Security-Group'
+
+  AppPrivateRouteTbl:
+    Description: AppPrivateRouteTbl
+    Value: 
+      !Ref AppPrivateRouteTable
+    Export:
+      Name: 'App-Private-Route-Table'
+
+  AppPrivateSubnet1:
+    Description: AppPrivateSubnet1
+    Value: 
+      !Ref AppPrivateSub1
+    Export:
+      Name: 'App-Private-Sub1'
+
+  AppPrivateSubnet2:
+    Description: AppPrivateSubnet2
+    Value: 
+      !Ref AppPrivateSub2
+    Export:
+      Name: 'App-Private-Sub2'
+################################################################################
+################################################################################

@@ -1,0 +1,344 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: Transit VPC stack
+
+###############################################################################
+# Version 1.0 26/03/2022
+# First draft
+###############################################################################
+
+
+###############################################################################
+# Parameters section
+###############################################################################
+
+Parameters: 
+
+  #--------------------------
+  # Environment
+  #--------------------------
+  Env: 
+      Description: The environment type
+      Type: String
+      Default: Tst
+      AllowedValues: 
+        - Prd
+        - Pre
+        - Tst
+      ConstraintDescription: must be a Pre, Prd or Tst
+      
+  AmiIdBT:
+      Description: Enter the Bastian AMI-ID 
+      Type: String
+      Default: 'ami-07e55bdf507bee044'
+      ConstraintDescription: Format - ami-07e55bdf507bee044
+
+  
+###############################################################################
+# Mappings section
+###############################################################################
+
+
+Mappings:
+  EnvironmentMap:
+    Tst:
+      "CidrVpcTransit"              : "10.10.0.0/20"
+      "CidrTransitPubSub1"          : "10.10.1.0/24"
+      "CidrTransitPubSub2"          : "10.10.2.0/24"
+      "BEMinCapacity"               : 1
+      "InstanceType1"               : "t3.micro"
+      #"S3Endpoint"                  : "com.amazonaws.eu-north-1.s3"
+      #"CloudwatchEndpoint"          : "com.amazonaws.eu-north-1.logs"
+      #"MySQLdbEndpoint"             : "com.amazonaws.eu-north-1.mysql"
+      #"S3BEBinLocation"             : "s3://myghost-poc/test/binaries"
+      #"S3ConfigLocation"            : "s3://myghost-poc/test/config"
+      #"S3CertsLocation"             : "s3://myghost-poc/test/ssl"
+      #"S3ELBAccessLogsLocation"     : "drone-logs"
+      
+#######################################################################################
+###Resources Section
+#######################################################################################
+
+Resources:
+  TransitVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 
+        !FindInMap [EnvironmentMap, !Ref Env, "CidrVpcTransit"]
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      InstanceTenancy: default
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Transit-${Env}-Vpc'
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+#######################################################################################
+###Subnet Section
+#######################################################################################
+   
+  TransitPubSub1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: TransitVPC
+      CidrBlock: 
+        !FindInMap [EnvironmentMap, !Ref Env, "CidrTransitPubSub1"]
+      AvailabilityZone: 
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: ""
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Transit-${Env}-Public-Sub1'
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+ 
+  TransitPubSub2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: TransitVPC
+      CidrBlock:
+        !FindInMap [EnvironmentMap, !Ref Env, "CidrTransitPubSub2"]
+      AvailabilityZone: 
+        Fn::Select:
+          - 1
+          - Fn::GetAZs: ""
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Transit-${Env}-Public-Sub2'
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+
+#######################################################################################
+###Route Table Section
+#######################################################################################
+  TransitRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: TransitVPC
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Transit-${Env}-Public-RouteTable'
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+
+########################################################################################
+####Route Section
+########################################################################################
+  TransitOutgoingRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId:
+        Ref: TransitRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId:
+        Ref: TransitInternetGateway
+  
+  
+########################################################################################
+####Subnet Association Section
+########################################################################################
+ 
+  TransitPubSub1Assoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: TransitRouteTable
+      SubnetId:
+        Ref: TransitPubSub1
+  TransitPubSub2Assoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId:
+        Ref: TransitRouteTable
+      SubnetId:
+        Ref: TransitPubSub2
+########################################################################################
+####Internet Gateway Section
+########################################################################################
+  TransitInternetGateway:
+    Type: "AWS::EC2::InternetGateway"
+    Properties:
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Transit-${Env}-IGW'        
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+
+  TransitIgwAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        Ref: TransitVPC
+      InternetGatewayId:
+        Ref: TransitInternetGateway
+########################################################################################
+####Security Groups Section
+########################################################################################
+
+ 
+  TransitSG:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Bastian Server allowed ports
+      VpcId: 
+        Ref: TransitVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: 0.0.0.0/0
+      Tags:
+      - Key: Name
+        Value:
+          !Sub 'Transit-${Env}-Public-SecurityGroup'
+      - Key: Project
+        Value: Drone-Poc
+      - Key: Env
+        Value: 
+          !Sub '${Env}'
+ 
+
+########################################################################################
+####Auto-Scaling Section
+########################################################################################
+  LaunchConfigTransit:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      AssociatePublicIpAddress: true
+      ImageId:
+        !Ref AmiIdBT
+      SecurityGroups:
+        - !Ref TransitSG
+      InstanceType: 
+        !FindInMap [EnvironmentMap, !Ref Env, "InstanceType1"]
+      BlockDeviceMappings: 
+        - DeviceName: "/dev/sda1"
+          Ebs: 
+            VolumeSize: "8"
+            VolumeType: "gp2"
+            DeleteOnTermination: "true"
+
+  ASGTransit:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - !Ref TransitPubSub1
+      LaunchConfigurationName:
+        Ref: LaunchConfigTransit
+      AutoScalingGroupName:
+        !Sub 'Transit-${Env}-ASG'
+      MinSize:
+        !FindInMap [EnvironmentMap, !Ref Env, "BEMinCapacity"]   
+      MaxSize: 1
+      Tags:
+        - Key: Name
+          Value:
+            !Sub 'Transit-${Env}-Bastian'
+          PropagateAtLaunch: true
+        - Key: Project
+          Value: Drone-Poc
+          PropagateAtLaunch: true
+        - Key: Env
+          Value: 
+            !Ref Env
+          PropagateAtLaunch: true
+          
+  ScaleUpPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName:
+        Ref: ASGTransit
+      Cooldown: 120
+      ScalingAdjustment: "1"
+
+  ScaleDownPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName:
+        Ref: ASGTransit
+      Cooldown: 30
+      ScalingAdjustment: "-1"
+
+  CPUAlarmHigh:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmActions:
+        - Ref: ScaleUpPolicy
+      EvaluationPeriods: "2"
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value:
+            Ref: ASGTransit
+      MetricName: CPUUtilization
+      Namespace: "AWS/EC2"
+      Period: "60"
+      Statistic: Average
+      Threshold: "85"
+      Unit: Percent
+
+  CPUAlarmLow:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmActions:
+        - Ref: ScaleDownPolicy
+      EvaluationPeriods: "2"
+      ComparisonOperator: LessThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value:
+            Ref: ASGTransit
+      MetricName: CPUUtilization
+      Namespace: "AWS/EC2"
+      Period: "60"
+      Statistic: Average
+      Threshold: "40"
+      Unit: Percent
+
+###############################################################################
+# Outputs section
+###############################################################################
+Outputs:
+  VpcId:
+    Description: TransitVPC id 
+    Value: 
+      !Ref TransitVPC
+    Export:
+      Name:
+        !Sub 'Transit-${Env}-Vpc'
+
+  TransitRT:
+    Description: TransitRouteTable
+    Value: 
+      !Ref TransitRouteTable
+    Export:
+      Name:
+        !Sub 'Transit-${Env}-Public-RouteTable'
+ 
+################################################################################
